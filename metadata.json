@@ -1,0 +1,12 @@
+{
+  "name": "WebRTC Video Meetings & Board Embed",
+  "description": "Native peer-to-peer WebRTC video meeting app embeddable in company boards with real-time signaling, screen sharing, chat, and room links.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
