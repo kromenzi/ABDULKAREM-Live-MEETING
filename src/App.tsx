@@ -414,8 +414,10 @@ export default function App() {
       }
 
       // 3. Connect WebSocket without putting credentials in URLs or join payloads.
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const configuredApiBase = import.meta.env.VITE_API_BASE_URL || 'https://abdulkarem-live-meeting.onrender.com';
+      const wsUrl = configuredApiBase
+        ? `${configuredApiBase.replace(/^http/, 'ws')}/ws`
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
