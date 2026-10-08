@@ -17,6 +17,7 @@ import {
   JwtPayload,
 } from './src/server/auth.js';
 import { db } from './src/server/db.js';
+import { getPostgresUserByEmail } from './src/server/postgres-auth.js';
 import {
   summarizeMeetingWithGemini,
   extractActionsWithGemini,
@@ -972,7 +973,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // 2. Authentication: Login with Verified Email & Password (P0 #1, #2, #3)
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const ip = getClientIp(req);
   if (!loginRateLimiter.allow(ip)) return res.status(429).json({ error: 'Too many authentication attempts' });
   const { email, password } = req.body;
@@ -981,7 +982,22 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = db.getUserByEmail(email);
+  let user = db.getUserByEmail(email);
+  if (process.env.DATABASE_URL) {
+    try {
+      const postgresUser = await getPostgresUserByEmail(String(email));
+      if (postgresUser) {
+        // Supabase is the source of truth in Render. Mirror the verified identity
+        // into the local compatibility store so existing meeting/WebSocket code
+        // can use the same authorization contract during the migration.
+        if (!db.getCompany(postgresUser.companyId)) db.createCompany(postgresUser.companyId, `Company ${postgresUser.companyId}`);
+        if (!db.getUserById(postgresUser.id)) db.createUser(postgresUser);
+        user = db.getUserById(postgresUser.id);
+      }
+    } catch {
+      return res.status(503).json({ error: 'Authentication database unavailable' });
+    }
+  }
   if (!user) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }

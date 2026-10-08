@@ -212,7 +212,11 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return { success: false, error: res.status === 401 ? 'يتطلب النشر تسجيل دخول Vercel أو أن خادم المصادقة غير متصل.' : `استجابة غير صالحة من الخادم (${res.status})` };
+      }
+      const data = await res.json() as { user?: any; error?: string };
       if (res.ok && data.user) {
         setAuthUser(data.user);
         setAuthToken(data.user.token);
