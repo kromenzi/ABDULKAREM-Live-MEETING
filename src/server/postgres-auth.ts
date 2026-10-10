@@ -18,10 +18,12 @@ let pool: Pool | null = null;
 function getPool(): Pool | null {
   if (!process.env.DATABASE_URL) return null;
   if (!pool) {
+    const isProduction = process.env.NODE_ENV === 'production';
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: Number(process.env.PG_POOL_MAX || 5),
-      ssl: process.env.PGSSL === 'disable' ? undefined : { rejectUnauthorized: false },
+      // Hosted Supabase PostgreSQL requires TLS; never downgrade production.
+      ssl: isProduction || process.env.PGSSL !== 'disable' ? { rejectUnauthorized: false } : undefined,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
@@ -51,6 +53,17 @@ export async function getPostgresUserByEmail(email: string): Promise<PostgresUse
     [email.trim()],
   );
   return result.rows[0] ? mapUser(result.rows[0]) : null;
+}
+
+export function getPostgresAuthDiagnostics(): { configured: boolean; host?: string; port?: string; database?: string } {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) return { configured: false };
+  try {
+    const url = new URL(raw);
+    return { configured: true, host: url.hostname, port: url.port || '5432', database: url.pathname.slice(1) || 'postgres' };
+  } catch {
+    return { configured: true };
+  }
 }
 
 export async function getPostgresUserById(id: string): Promise<PostgresUserRecord | null> {

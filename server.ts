@@ -17,7 +17,7 @@ import {
   JwtPayload,
 } from './src/server/auth.js';
 import { db } from './src/server/db.js';
-import { getPostgresUserByEmail } from './src/server/postgres-auth.js';
+import { getPostgresUserByEmail, getPostgresAuthDiagnostics } from './src/server/postgres-auth.js';
 import {
   summarizeMeetingWithGemini,
   extractActionsWithGemini,
@@ -994,7 +994,12 @@ app.post('/api/auth/login', async (req, res) => {
         if (!db.getUserById(postgresUser.id)) db.createUser(postgresUser);
         user = db.getUserById(postgresUser.id);
       }
-    } catch {
+    } catch (error: any) {
+      console.error('[AUTH_DB_ERROR]', {
+        ...getPostgresAuthDiagnostics(),
+        code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
+        message: typeof error?.message === 'string' ? error.message.slice(0, 180) : 'unknown database error',
+      });
       return res.status(503).json({ error: 'Authentication database unavailable' });
     }
   }
