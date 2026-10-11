@@ -18,6 +18,7 @@ import {
 } from './src/server/auth.js';
 import { db } from './src/server/db.js';
 import { getPostgresUserByEmail, getPostgresAuthDiagnostics } from './src/server/postgres-auth.js';
+import { isSupabaseAuthConfigured, signInWithSupabasePassword } from './src/server/supabase-auth.js';
 import {
   summarizeMeetingWithGemini,
   extractActionsWithGemini,
@@ -980,6 +981,72 @@ app.post('/api/auth/login', async (req, res) => {
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  // Transitional mode: Supabase Auth owns the password and identity, while
+  // the existing internal JWT keeps REST/WebSocket authorization compatible.
+  if (process.env.AUTH_MODE === 'supabase') {
+    if (!isSupabaseAuthConfigured()) {
+      return res.status(503).json({ error: 'Supabase authentication is not configured' });
+    }
+    try {
+      const result = await signInWithSupabasePassword(String(email), String(password));
+      if (!result) return res.status(401).json({ error: 'Invalid email or password' });
+      const profile = result.profile;
+      const internalId = `supabase:${profile.authUserId}`;
+      if (!db.getCompany(profile.companyId)) db.createCompany(profile.companyId, `Company ${profile.companyId}`);
+      if (!db.getUserById(internalId)) {
+        db.createUser({
+          id: internalId,
+          email: profile.email,
+          password_hash: crypto.randomBytes(64).toString('hex'),
+          salt: crypto.randomBytes(16).toString('hex'),
+          displayName: profile.displayName,
+          role: profile.role,
+          companyId: profile.companyId,
+          siteId: profile.siteId,
+        });
+      }
+      const token = signJwt({
+        id: internalId,
+        email: profile.email,
+        displayName: profile.displayName,
+        role: profile.role,
+        companyId: profile.companyId,
+        siteId: profile.siteId,
+      });
+      const now = Math.floor(Date.now() / 1000);
+      db.logAudit({
+        actorId: internalId,
+        actorName: profile.displayName,
+        actorRole: profile.role,
+        action: 'SUPABASE_USER_LOGIN',
+        ip: getClientIp(req),
+        details: { companyId: profile.companyId, authUserId: profile.authUserId },
+      });
+      return res.json({
+        user: {
+          id: internalId,
+          email: profile.email,
+          displayName: profile.displayName,
+          role: profile.role,
+          companyId: profile.companyId,
+          siteId: profile.siteId,
+          token,
+          exp: now + 8 * 3600,
+          authProvider: 'supabase',
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'PROFILE_NOT_PROVISIONED') {
+        return res.status(403).json({ error: 'Supabase account is not provisioned for this company' });
+      }
+      if (error?.status === 400 || error?.status === 401) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      console.error('[SUPABASE_AUTH_ERROR]', { code: error?.code || 'UNKNOWN' });
+      return res.status(503).json({ error: 'Supabase authentication unavailable' });
+    }
   }
 
   let user = db.getUserByEmail(email);

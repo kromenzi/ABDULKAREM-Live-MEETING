@@ -13,6 +13,15 @@ export interface PostgresUserRecord {
   createdAt: number;
 }
 
+export interface PostgresUserProfileRecord {
+  authUserId: string;
+  email: string;
+  displayName: string;
+  role: Role;
+  companyId: string;
+  siteId?: string;
+}
+
 let pool: Pool | null = null;
 
 function getPool(): Pool | null {
@@ -74,6 +83,28 @@ export async function getPostgresUserById(id: string): Promise<PostgresUserRecor
     [id],
   );
   return result.rows[0] ? mapUser(result.rows[0]) : null;
+}
+
+export async function getPostgresUserProfileByAuthId(authUserId: string): Promise<PostgresUserProfileRecord | null> {
+  const activePool = getPool();
+  if (!activePool) return null;
+  const result = await activePool.query(
+    `SELECT auth_user_id, email, display_name, role, company_id, site_id
+       FROM public.user_profiles
+      WHERE auth_user_id = $1
+      LIMIT 1`,
+    [authUserId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    authUserId: String(row.auth_user_id),
+    email: String(row.email),
+    displayName: String(row.display_name),
+    role: row.role as Role,
+    companyId: String(row.company_id),
+    siteId: row.site_id ? String(row.site_id) : undefined,
+  };
 }
 
 export async function closePostgresAuthPool(): Promise<void> {
